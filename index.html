@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>两个人的台湾冬天</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Serif+TC:wght@700;900&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+TC:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero wrap">
+  <p class="eyebrow">2026.12.19 — 12.26 · 7 晚 8 天</p>
+  <h1>两个人的<br>台湾冬天</h1>
+  <p class="lede">台北三晚，台南三晚，再回台北一晚。两个生日，一个平安夜，不赶路，慢慢吃。</p>
+  <p class="status" id="status">距离出发还有 — 天</p>
+
+  <ol class="route" aria-label="路线">
+    <li><span class="route-city">吉隆坡</span><span class="route-note">12/19 出发</span></li>
+    <li class="is-taipei"><span class="route-city">台北</span><span class="route-note">3 晚 · 西门</span></li>
+    <li class="is-tainan"><span class="route-city">台南</span><span class="route-note">3 晚 · 古城</span></li>
+    <li class="is-taipei"><span class="route-city">台北</span><span class="route-note">1 晚 · 天母</span></li>
+    <li><span class="route-city">吉隆坡</span><span class="route-note">12/26 回家</span></li>
+  </ol>
+</header>
+
+<nav class="tabs" aria-label="页面">
+  <div class="tabs-inner">
+    <button type="button" class="tab" id="tab-plan" data-tab="plan" aria-controls="plan">行程</button>
+    <button type="button" class="tab" id="tab-food" data-tab="food" aria-controls="food">美食</button>
+    <button type="button" class="tab" id="tab-spots" data-tab="spots" aria-controls="spots">景点</button>
+    <button type="button" class="tab" id="tab-go" data-tab="go" aria-controls="go">出行</button>
+    <button type="button" class="tab" id="tab-pack" data-tab="pack" aria-controls="pack">行李</button>
+  </div>
+</nav>
+
+<main class="wrap">
+  <section class="panel" id="plan" aria-labelledby="tab-plan">
+    <div class="days" id="day-picker" role="tablist" aria-label="选择日期"></div>
+    <article class="day" id="day-view" aria-live="polite"></article>
+  </section>
+
+  <section class="panel" id="food" aria-labelledby="tab-food" hidden>
+    <div class="panel-head">
+      <h2>美食清单</h2>
+      <p class="panel-sub">吃过就盖个章。所有推荐都避开了内脏，点单时注意标了「提醒」的项目。</p>
+      <p class="progress" id="food-progress"></p>
+    </div>
+    <div class="filters" id="food-city" role="group" aria-label="城市"></div>
+    <div class="filters" id="food-cat" role="group" aria-label="类别"></div>
+    <div class="cards" id="food-list"></div>
+  </section>
+
+  <section class="panel" id="spots" aria-labelledby="tab-spots" hidden>
+    <div class="panel-head">
+      <h2>景点清单</h2>
+      <p class="panel-sub">去过就盖章，回国后就是一张属于你们的打卡地图。</p>
+      <p class="progress" id="spot-progress"></p>
+    </div>
+    <div class="filters" id="spot-city" role="group" aria-label="城市"></div>
+    <div class="cards" id="spot-list"></div>
+  </section>
+
+  <section class="panel" id="go" aria-labelledby="tab-go" hidden>
+    <div class="panel-head">
+      <h2>出行锦囊</h2>
+      <p class="panel-sub">航班、酒店、交通和在台湾生活的小常识。酒店地址可以直接点开给司机看。</p>
+    </div>
+    <div id="go-content"></div>
+  </section>
+
+  <section class="panel" id="pack" aria-labelledby="tab-pack" hidden>
+    <div class="panel-head">
+      <h2>行李与常用语</h2>
+      <p class="panel-sub">出发前一晚对着勾一遍。勾选只存在这台设备上。</p>
+      <p class="progress" id="pack-progress"></p>
+    </div>
+    <div id="pack-content"></div>
+  </section>
+</main>
+
+<footer class="foot wrap">
+  <p>营业时间与价格为 2026 年 10 月整理的资料，店家可能临时公休，出门前用 Google Maps 再看一眼。</p>
+</footer>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <p class="sheet-kicker" id="sheet-kicker"></p>
+    <p class="sheet-title" id="sheet-title"></p>
+    <p class="sheet-body" id="sheet-body"></p>
+    <button type="button" class="btn" id="sheet-close">关闭</button>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
