@@ -2,6 +2,7 @@
   'use strict';
 
   var T = window.TRIP;
+  var PL = window.PLACES || { hotels: {}, days: {} };
   if (!T) return;
 
   // ---------- helpers ----------
@@ -12,16 +13,29 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function plain(html, n) {
+    var t = String(html || '').replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n - 1) + '…' : t;
+  }
   function mapUrl(q) { return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q); }
   function navLink(q, label) {
     if (!q) return '';
     return '<a class="navlink" href="' + mapUrl(q) + '" target="_blank" rel="noopener">' + (label || '导航') + ' ↗</a>';
   }
+  var icon = window.iconSVG || function () { return ''; };
+  var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function scrollToEl(el, block) {
+    if (!el) return;
+    el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: block || 'start' });
+  }
 
   var CITY = { taipei: '台北', tainan: '台南' };
-  var STAMP = {
-    eat: '吃', sweet: '甜', cafe: '茶', spot: '游', walk: '逛', move: '行', bar: '酒',
-    rest: '歇', fly: '飞', spa: '泡', shop: '买', view: '景', love: '爱', night: '夜'
+  var CITY_C = { taipei: 'var(--taipei)', tainan: 'var(--tainan)' };
+  var KIND = {
+    eat: ['美食', '#E5523F'], sweet: ['甜点', '#D9669A'], cafe: ['咖啡 · 茶', '#B5793F'], spot: ['景点', '#62AD49'],
+    walk: ['散步', '#62AD49'], view: ['风景', '#E2A320'], love: ['浪漫', '#E5523F'], night: ['夜市', '#8B63C9'],
+    bar: ['小酌', '#7B58C2'], move: ['交通', '#8C9099'], rest: ['休息', '#8C9099'], fly: ['航班', '#4568D8'],
+    spa: ['泡汤', '#2E9E97'], shop: ['逛街', '#EE8A36']
   };
   var DOW = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -37,13 +51,59 @@
     save();
   }
 
+  // ---------- merge map places into the trip data ----------
+  var HOTEL = {};
+  T.go.hotels.forEach(function (h, i) {
+    var id = 'H' + (i + 1), p = PL.hotels[id] || {};
+    h.id = id; h.geo = p.geo; h.short = p.short || h.name;
+    HOTEL[id] = h;
+  });
+  T.days.forEach(function (d) {
+    var p = PL.days[d.id] || {}, items = p.items || {}, seen = {};
+    d.place = p;
+    d.items.forEach(function (it) {
+      var m = items[it.title];
+      if (m) { it.geo = m.geo; it.via = m.via; seen[it.title] = 1; }
+    });
+    Object.keys(items).forEach(function (k) {
+      if (!seen[k] && window.console) console.warn('places.js: ' + d.id + ' has no item titled', k);
+    });
+  });
+
+  function hotelStop(id, via) {
+    var h = HOTEL[id];
+    if (!h || !h.geo) return null;
+    return { at: h.geo, hotel: id, title: h.short, via: via || null, mapq: h.addr, blurb: h.name + ' · ' + h.dates };
+  }
+  function buildStops(d) {
+    var stops = [], n = 0, p = d.place;
+    if (p.from) { var a = hotelStop(p.from); if (a) stops.push(a); }
+    d.items.forEach(function (it, i) {
+      it._n = null; it._stop = null;
+      if (!it.geo) return;
+      var st;
+      if (typeof it.geo === 'string') {
+        st = hotelStop(it.geo, it.via);
+        if (!st) return;
+        st.title = it.title; st.time = it.time; st.item = i;
+      } else {
+        st = { at: it.geo, via: it.via || null, title: it.title, time: it.time, optional: !!it.optional,
+          mapq: it.map, blurb: plain(it.desc || it.eat || '', 64), item: i, n: ++n };
+        it._n = st.n;
+      }
+      it._stop = stops.length;
+      stops.push(st);
+    });
+    if (p.to) { var b = hotelStop(p.to, p.toVia); if (b) stops.push(b); }
+    return stops;
+  }
+
   // ---------- dates (always Taiwan time) ----------
   function todayTW() {
     try {
       return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     } catch (e) {
-      var d = new Date(Date.now() + 8 * 3600 * 1000);
-      return d.toISOString().slice(0, 10);
+      return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     }
   }
   function dayDiff(a, b) {
@@ -54,19 +114,26 @@
     var p = iso.split('-');
     return DOW[new Date(Date.UTC(+p[0], p[1] - 1, +p[2])).getUTCDay()];
   }
+  function md(iso) { var p = iso.split('-'); return (+p[1]) + '/' + (+p[2]); }
   var TODAY = todayTW();
-  var FIRST = T.days[0].date;
-  var LAST = T.days[T.days.length - 1].date;
+  var FIRST = T.days[0].date, LAST = T.days[T.days.length - 1].date;
 
   function renderStatus() {
-    var el = $('#status');
-    var until = dayDiff(TODAY, FIRST);
-    if (until > 1) el.textContent = '距离出发还有 ' + until + ' 天';
+    var el = $('#status'), until = dayDiff(TODAY, FIRST);
+    if (until > 1) el.textContent = '还有 ' + until + ' 天出发';
     else if (until === 1) el.textContent = '明天就出发了，护照带了吗？';
     else if (until === 0) el.textContent = '今天出发，一路平安';
-    else if (dayDiff(TODAY, LAST) >= 0) el.textContent = '旅行第 ' + (1 - until) + ' 天 · 今天的行程已经帮你们打开';
+    else if (dayDiff(TODAY, LAST) >= 0) el.textContent = '旅行第 ' + (1 - until) + ' 天';
     else el.textContent = '旅行结束了，回忆收好了';
   }
+
+  // ---------- hero doodles ----------
+  var HERO = [
+    ['skylantern', 'a'], ['bubbletea', 'b'], ['lantern', 'c'], ['train', 'd'], ['heart', 'e'], ['sparkle', 'f'],
+    ['sparkle', 'g'], ['squiggle', 'h'], ['tower101', 'i'], ['dotB', 'j'], ['dotG', 'k'], ['dashes', 'l'], ['temple', 'm']
+  ];
+  $('#hero-doodles').innerHTML = HERO.map(function (h) { return '<span class="hd hd-' + h[1] + '">' + icon(h[0], 64) + '</span>'; }).join('');
+  $('#foot-doodle').innerHTML = icon('heart', 34);
 
   // ---------- tabs ----------
   var TABS = ['plan', 'food', 'spots', 'go', 'pack'];
@@ -76,132 +143,189 @@
       $('#' + t).hidden = t !== name;
       $('#tab-' + t).setAttribute('aria-selected', String(t === name));
     });
-    if (push) {
-      try { history.replaceState(null, '', '#' + name); } catch (e) { /* file:// in some browsers */ }
-    }
+    if (push) { try { history.replaceState(null, '', '#' + name); } catch (e) { /* file:// */ } }
   }
   $$('.tab').forEach(function (b) {
     b.addEventListener('click', function () {
       showTab(b.dataset.tab, true);
-      var top = $('.tabs').getBoundingClientRect().top;
-      if (window.innerWidth >= 900 && top <= 1) window.scrollTo({ top: $('main').offsetTop - 50 });
-      else if (window.innerWidth < 900) window.scrollTo({ top: $('main').offsetTop - 8 });
+      var top = $('main').getBoundingClientRect().top + window.scrollY - (window.innerWidth >= 900 ? 60 : 0);
+      if (window.scrollY > top) window.scrollTo({ top: top });
     });
   });
+  $('#cta').addEventListener('click', function (e) {
+    e.preventDefault();
+    showTab('plan', true);
+    scrollToEl($('#route'));
+  });
 
-  // ---------- itinerary ----------
+  // ---------- map ----------
+  var tripMap = new window.TripMap($('#map'), {
+    onBubble: function (id) { selectDay(id, true); },
+    onDetail: function (itemIdx) {
+      if (!currentDay || currentDay === 'all') return;
+      var li = $('#tl-' + currentDay + '-' + itemIdx);
+      if (!li) return;
+      scrollToEl(li, 'center');
+      li.classList.remove('is-flash'); void li.offsetWidth; li.classList.add('is-flash');
+    }
+  });
+
+  // ---------- day picker ----------
   var currentDay = null;
-
-  function renderPicker() {
-    var html = T.days.map(function (d, i) {
-      var p = d.date.split('-');
-      var cityCls = d.city === 'tainan' ? 'c-tainan' : d.city === 'taipei' ? 'c-taipei' : '';
-      var today = d.date === TODAY ? '<span class="stub-today">今天</span>' : '';
-      return '<button type="button" role="tab" class="stub ' + cityCls + '" data-day="' + d.id + '" id="stub-' + d.id + '" aria-controls="day-view">' +
-        today +
-        '<span class="stub-dow">' + dowOf(d.date) + '</span>' +
-        '<span class="stub-num">' + p[2] + '</span>' +
-        '<span class="stub-city">' + esc(d.stubLabel || d.cityLabel) + '</span>' +
-        '</button>';
+  function dayById(id) { var r = null; T.days.forEach(function (d) { if (d.id === id) r = d; }); return r; }
+  function renderDaybar() {
+    var html = '<button type="button" role="tab" class="daypill" data-day="all"><span class="dp-dot"></span><b>全程</b><span class="dp-sub">8 天</span></button>';
+    html += T.days.map(function (d) {
+      var c = d.special ? 'c-special' : d.city === 'tainan' ? 'c-tainan' : 'c-taipei';
+      return '<button type="button" role="tab" class="daypill" data-day="' + d.id + '">' +
+        '<span class="dp-dot ' + c + '"></span><b>' + md(d.date) + '</b><span class="dp-sub">' + esc(d.short) + '</span>' +
+        (d.date === TODAY ? '<em class="dp-today">今天</em>' : '') + '</button>';
     }).join('');
-    $('#day-picker').innerHTML = html;
-    $$('.stub').forEach(function (b) {
+    $('#daybar').innerHTML = html;
+    $$('.daypill').forEach(function (b) {
       b.addEventListener('click', function () { selectDay(b.dataset.day, true); });
     });
   }
-
-  function itemHtml(it) {
-    var kind = it.kind || 'spot';
-    var cls = 'stop k-' + kind + (it.optional ? ' is-optional' : '');
-    var tags = (it.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
-    if (it.optional) tags = '<span class="tag is-opt">可选</span>' + tags;
-    if (it.warn) tags += '<span class="tag is-warn">' + esc(it.warn) + '</span>';
-    return '<li class="' + cls + '">' +
-      '<span class="stamp" aria-hidden="true">' + esc(it.stamp || STAMP[kind] || '游') + '</span>' +
-      '<div class="stop-body">' +
-        (it.time ? '<span class="stop-time">' + esc(it.time) + '</span>' : '') +
-        '<h3 class="stop-title">' + esc(it.title) + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</h3>' +
-        (it.desc ? '<p class="stop-desc">' + it.desc + '</p>' : '') +
-        (it.eat ? '<p class="stop-eat"><b>点什么</b>　' + it.eat + '</p>' : '') +
-        (it.tip ? '<p class="stop-tip"><b>小提醒</b>　' + it.tip + '</p>' : '') +
-        ((tags || it.map) ? '<div class="stop-actions">' + tags + navLink(it.map) + '</div>' : '') +
-      '</div>' +
-    '</li>';
+  function selectDay(id, user) {
+    if (id !== 'all' && !dayById(id)) id = 'all';
+    currentDay = id;
+    $$('.daypill').forEach(function (b) {
+      var on = b.dataset.day === id;
+      b.setAttribute('aria-selected', String(on));
+      if (on) {
+        var bar = $('#daybar');
+        var left = b.offsetLeft - (bar.clientWidth - b.offsetWidth) / 2;
+        bar.scrollTo({ left: Math.max(0, left), behavior: REDUCED ? 'auto' : 'smooth' });
+      }
+    });
+    if (id === 'all') {
+      tripMap.showJourney();
+      renderOverview();
+    } else {
+      var d = dayById(id);
+      d._stops = buildStops(d);
+      tripMap.showDay({ stops: d._stops, flyIn: d.place.flyIn, flyOut: d.place.flyOut });
+      renderDay(d);
+    }
+    if (user) { store.day = id; save(); }
   }
 
-  function renderDay(id) {
-    var idx = 0;
-    T.days.forEach(function (d, i) { if (d.id === id) idx = i; });
-    var d = T.days[idx];
-    var kickerCity = d.city === 'tainan' ? 'k-tainan' : d.city === 'taipei' ? 'k-taipei' : '';
-    var p = d.date.split('-');
-    var pills = (d.pills || []).map(function (x) {
-      return '<span class="pill' + (x.special ? ' is-special' : '') + '">' + esc(x.text || x) + '</span>';
-    }).join('');
-    var moment = d.moment ?
-      '<div class="moment' + (d.special ? ' is-special' : '') + '">' +
-        '<span class="seal" aria-hidden="true">' + esc(d.moment.seal || '缘') + '</span>' +
-        '<div><p class="moment-label">' + esc(d.moment.label || '今日浪漫时刻') + '</p><p>' + d.moment.text + '</p></div>' +
-      '</div>' : '';
-    var asides = '';
-    if (d.planB || d.tips) {
-      asides = '<div class="aside-grid">' +
-        (d.tips ? '<div class="aside-box"><h3>今天要记得</h3><ul>' + d.tips.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul></div>' : '') +
-        (d.planB ? '<div class="aside-box"><h3>' + esc(d.planBTitle || '下雨或累了的话') + '</h3><p>' + d.planB + '</p></div>' : '') +
-      '</div>';
-    }
-    var prev = T.days[idx - 1], next = T.days[idx + 1];
-    var nav = '<div class="day-nav">' +
-      (prev ? '<button type="button" class="btn" data-go="' + prev.id + '">← ' + prev.date.slice(5).replace('-', '/') + ' ' + esc(prev.short || '') + '</button>' : '<span></span>') +
-      (next ? '<button type="button" class="btn" data-go="' + next.id + '">' + next.date.slice(5).replace('-', '/') + ' ' + esc(next.short || '') + ' →</button>' : '<span></span>') +
-      '</div>';
-
-    var view = $('#day-view');
-    view.innerHTML =
-      '<header class="day-head">' +
-        '<p class="day-kicker">第 ' + (idx + 1) + ' 天 · ' + (+p[1]) + '月' + (+p[2]) + '日 ' + dowOf(d.date) + ' · <b class="' + kickerCity + '">' + esc(d.cityLabel) + '</b></p>' +
-        '<h2>' + esc(d.title) + '</h2>' +
-        (d.theme ? '<p class="day-theme">' + d.theme + '</p>' : '') +
-        (pills ? '<div class="pills">' + pills + '</div>' : '') +
-      '</header>' +
-      moment +
-      '<ol class="thread">' + d.items.map(itemHtml).join('') + '</ol>' +
-      asides + nav;
-
-    $$('[data-go]', view).forEach(function (b) {
-      b.addEventListener('click', function () {
-        selectDay(b.dataset.go, true);
-        var top = $('#plan').getBoundingClientRect().top + window.scrollY - (window.innerWidth >= 900 ? 60 : 8);
-        window.scrollTo({ top: top });
-      });
-    });
+  function enter(view) {
     view.classList.remove('is-entering');
     void view.offsetWidth;
     view.classList.add('is-entering');
   }
 
-  function selectDay(id, remember) {
-    currentDay = id;
-    $$('.stub').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.day === id)); });
-    renderDay(id);
-    if (remember) { store.day = id; save(); }
+  function renderOverview() {
+    var view = $('#day-view');
+    view.innerHTML =
+      '<header>' +
+        '<span class="step-pill"><i></i>全程 · 7 晚 8 天</span>' +
+        '<h2 class="day-title">从吉隆坡出发，沿着台湾西边慢慢走</h2>' +
+        '<p class="day-theme">台北 3 晚，搭高铁去台南住 3 晚，再回台北天母住最后 1 晚。点下面任何一天，或地图上的小标签。</p>' +
+      '</header>' +
+      '<div class="ov-grid">' + T.days.map(function (d, i) {
+        return '<button type="button" class="ov-card" data-go="' + d.id + '">' +
+          icon(d.place.icon || 'sparkle', 40) +
+          '<span class="step-pill' + (d.special ? ' is-special' : '') + '"><i></i>DAY ' + (i + 1) + ' · ' + md(d.date) + ' ' + dowOf(d.date) + '</span>' +
+          '<span class="ov-title">' + esc(d.title) + '</span>' +
+          '<span class="ov-sub">' + esc(d.cityLabel) + '</span>' +
+        '</button>';
+      }).join('') + '</div>';
+    $$('[data-go]', view).forEach(function (b) {
+      b.addEventListener('click', function () { selectDay(b.dataset.go, true); scrollToEl($('#daybar'), 'start'); });
+    });
+    enter(view);
   }
 
-  // ---------- checklists (food & spots) ----------
+  function itemHtml(d, it, i) {
+    var k = KIND[it.kind] || KIND.spot;
+    var badge = it._n ? '<span class="tl-num">' + it._n + '</span>' :
+      typeof it.geo === 'string' ? '<span class="tl-num tl-home">' + icon('house', 24) + '</span>' :
+      '<span class="tl-dot" style="--c:' + k[1] + '"></span>';
+    var tags = (it.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
+    if (it.warn) tags += '<span class="tag is-warn">' + esc(it.warn) + '</span>';
+    var actions = tags +
+      (it._stop != null ? '<button type="button" class="btn btn-map" data-focus="' + it._stop + '">在地图上看</button>' : '') +
+      navLink(it.map);
+    return '<li class="tl' + (it.optional ? ' is-opt' : '') + '" id="tl-' + d.id + '-' + i + '">' +
+      '<div class="tl-rail">' + badge + '</div>' +
+      '<article class="tl-card">' +
+        '<div class="tl-top">' +
+          (it.time ? '<span class="tl-time">' + esc(it.time) + '</span>' : '') +
+          '<span class="kchip"><i style="--c:' + k[1] + '"></i>' + k[0] + '</span>' +
+          (it.optional ? '<span class="kchip is-opt">可选</span>' : '') +
+        '</div>' +
+        '<h3 class="tl-title">' + esc(it.title) + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</h3>' +
+        (it.desc ? '<p class="tl-desc">' + it.desc + '</p>' : '') +
+        (it.eat ? '<p class="tl-eat"><b>点什么</b>' + it.eat + '</p>' : '') +
+        (it.tip ? '<p class="tl-tip"><b>小提醒</b>' + it.tip + '</p>' : '') +
+        (actions ? '<div class="tl-actions">' + actions + '</div>' : '') +
+      '</article>' +
+    '</li>';
+  }
+
+  function renderDay(d) {
+    var idx = T.days.indexOf(d);
+    var pills = (d.pills || []).map(function (x) {
+      return '<span class="pill' + (x.special ? ' is-special' : '') + '">' + esc(x.text || x) + '</span>';
+    }).join('');
+    var moment = d.moment ?
+      '<div class="moment' + (d.special ? ' is-special' : '') + '">' + icon(d.special ? 'cake' : 'heart', 44) +
+        '<p class="moment-label">' + esc(d.moment.label || '今日浪漫时刻') + '</p><p>' + d.moment.text + '</p></div>' : '';
+    var asides = (d.tips || d.planB) ? '<div class="aside-grid">' +
+      (d.tips ? '<div class="aside-box"><h3>今天要记得</h3><ul>' + d.tips.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul></div>' : '') +
+      (d.planB ? '<div class="aside-box"><h3>' + esc(d.planBTitle || '下雨或累了的话') + '</h3><p>' + d.planB + '</p></div>' : '') +
+      '</div>' : '';
+    var prev = T.days[idx - 1], next = T.days[idx + 1];
+    var nav = '<div class="day-nav">' +
+      (prev ? '<button type="button" class="btn" data-go="' + prev.id + '">← ' + md(prev.date) + ' ' + esc(prev.short) + '</button>' : '<button type="button" class="btn" data-go="all">← 全程</button>') +
+      (next ? '<button type="button" class="btn" data-go="' + next.id + '">' + md(next.date) + ' ' + esc(next.short) + ' →</button>' : '<span></span>') +
+      '</div>';
+
+    var view = $('#day-view');
+    view.innerHTML =
+      '<header>' +
+        '<span class="step-pill' + (d.special ? ' is-special' : '') + '"><i></i>DAY ' + (idx + 1) + ' · ' + md(d.date) + ' ' + dowOf(d.date) + ' · ' + esc(d.cityLabel) + '</span>' +
+        '<h2 class="day-title">' + esc(d.title) + '</h2>' +
+        (d.theme ? '<p class="day-theme">' + d.theme + '</p>' : '') +
+        (pills ? '<div class="pills">' + pills + '</div>' : '') +
+      '</header>' +
+      moment +
+      '<ol class="timeline">' + d.items.map(function (it, i) { return itemHtml(d, it, i); }).join('') + '</ol>' +
+      asides + nav;
+
+    $$('[data-focus]', view).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = +b.dataset.focus, mapEl = $('#map'), r = mapEl.getBoundingClientRect();
+        var hidden = r.bottom < 80 || r.top > window.innerHeight - 80;
+        if (hidden) { scrollToEl(mapEl, 'center'); setTimeout(function () { tripMap.focus(i); }, REDUCED ? 0 : 450); }
+        else tripMap.focus(i);
+      });
+    });
+    $$('[data-go]', view).forEach(function (b) {
+      b.addEventListener('click', function () { selectDay(b.dataset.go, true); scrollToEl($('#daybar'), 'start'); });
+    });
+    enter(view);
+  }
+
+  // ---------- food & spots ----------
   var FOOD_CATS = [
     { id: 'all', label: '全部' },
-    { id: 'snack', label: '小吃' },
-    { id: 'market', label: '夜市' },
-    { id: 'sweet', label: '甜点咖啡' },
-    { id: 'bar', label: '酒吧' },
-    { id: 'dine', label: '浪漫餐厅' }
+    { id: 'snack', label: '小吃', c: '#E5523F' },
+    { id: 'market', label: '夜市', c: '#8B63C9' },
+    { id: 'sweet', label: '甜点咖啡', c: '#D9669A' },
+    { id: 'bar', label: '酒吧', c: '#7B58C2' },
+    { id: 'dine', label: '浪漫餐厅', c: '#E2A320' }
   ];
-  var CITIES = [{ id: 'all', label: '全部' }, { id: 'taipei', label: '台北' }, { id: 'tainan', label: '台南' }];
+  var FOOD_ICON = { snack: 'bowl', market: 'lantern', sweet: 'bubbletea', bar: 'cocktail', dine: 'heartFill' };
+  var CITIES = [{ id: 'all', label: '全部' }, { id: 'taipei', label: '台北', c: 'var(--taipei)' }, { id: 'tainan', label: '台南', c: 'var(--tainan)' }];
   var filt = { foodCity: 'all', foodCat: 'all', spotCity: 'all' };
 
   function chips(el, list, key, onChange) {
     el.innerHTML = list.map(function (c) {
-      return '<button type="button" class="chip" data-v="' + c.id + '" aria-pressed="' + (filt[key] === c.id) + '">' + c.label + '</button>';
+      return '<button type="button" class="chip" data-v="' + c.id + '" aria-pressed="' + (filt[key] === c.id) + '">' +
+        (c.c ? '<i style="--c:' + c.c + '"></i>' : '') + c.label + '</button>';
     }).join('');
     $$('.chip', el).forEach(function (b) {
       b.addEventListener('click', function () {
@@ -212,24 +336,16 @@
     });
   }
 
-  function dayRef(id) {
-    var d = null;
-    T.days.forEach(function (x) { if (x.id === id) d = x; });
-    if (!d) return '';
-    return '<button type="button" class="btn" data-jump="' + d.id + '">排在 ' + d.date.slice(5).replace('-', '/') + '</button>';
-  }
-
   function cardHtml(x, prefix, doneLabel, sealText) {
-    var k = prefix + ':' + x.id;
-    var done = isDone(k);
-    var facts = [];
-    if (x.hours) facts.push('<span>营业 ' + esc(x.hours) + '</span>');
-    if (x.price) facts.push('<span>人均 ' + esc(x.price) + '</span>');
-    if (x.fee) facts.push('<span>门票 ' + esc(x.fee) + '</span>');
-    return '<article class="card' + (done ? ' is-done' : '') + '" data-key="' + k + '">' +
-      '<div class="card-top"><h3>' + esc(x.name) + '</h3><span class="card-city c-' + x.city + '">' + CITY[x.city] + (x.catLabel ? ' · ' + x.catLabel : '') + '</span></div>' +
+    var k = prefix + ':' + x.id, done = isDone(k), facts = [];
+    if (x.hours) facts.push('<span>营业　' + esc(x.hours) + '</span>');
+    if (x.price) facts.push('<span>人均　' + esc(x.price) + '</span>');
+    if (x.fee) facts.push('<span>门票　' + esc(x.fee) + '</span>');
+    var d = x.day ? dayById(x.day) : null;
+    return '<article class="card' + (done ? ' is-done' : '') + '" id="card-' + prefix + '-' + x.id + '">' +
+      '<div class="card-top"><h3>' + esc(x.name) + '</h3><span class="card-city"><i style="--c:' + CITY_C[x.city] + '"></i>' + CITY[x.city] + (x.catLabel ? ' · ' + x.catLabel : '') + '</span></div>' +
       (x.area ? '<p class="card-area">' + esc(x.area) + '</p>' : '') +
-      (x.order ? '<p class="card-order"><b>必点</b>　' + x.order + '</p>' : '') +
+      (x.order ? '<p class="card-order"><b>必点</b>' + x.order + '</p>' : '') +
       (x.desc ? '<p class="card-order">' + x.desc + '</p>' : '') +
       (facts.length ? '<div class="card-facts">' + facts.join('') + '</div>' : '') +
       (x.note ? '<p class="card-note">' + x.note + '</p>' : '') +
@@ -237,11 +353,11 @@
       (done ? '<span class="done-seal" aria-hidden="true">' + sealText + '</span>' : '') +
       '<div class="card-actions">' +
         '<button type="button" class="btn check" aria-pressed="' + done + '" data-check="' + k + '">' + (done ? '✓ ' + doneLabel : doneLabel + '？') + '</button>' +
-        navLink(x.map) + (x.day ? dayRef(x.day) : '') +
+        navLink(x.map) +
+        (d ? '<button type="button" class="btn btn-map" data-jump="' + d.id + '">排在 ' + md(d.date) + '</button>' : '') +
       '</div>' +
     '</article>';
   }
-
   function wireCards(listEl, rerender) {
     $$('[data-check]', listEl).forEach(function (b) {
       b.addEventListener('click', function () {
@@ -255,7 +371,35 @@
       b.addEventListener('click', function () {
         showTab('plan', true);
         selectDay(b.dataset.jump, true);
-        window.scrollTo({ top: $('#plan').getBoundingClientRect().top + window.scrollY - 60 });
+        scrollToEl($('#daybar'), 'start');
+      });
+    });
+  }
+
+  function renderMarquee() {
+    function row(el, list) {
+      var set = function (hide) {
+        return '<div class="mq-set"' + (hide ? ' aria-hidden="true"' : '') + '>' + list.map(function (f) {
+          return '<button type="button" class="mq-card" data-food="' + f.id + '"' + (hide ? ' tabindex="-1"' : '') + '>' +
+            icon(FOOD_ICON[f.cat] || 'bowl', 44) +
+            '<span class="mq-text"><b>' + esc(f.name) + '</b><small>' + esc(plain(f.order || f.area, 30)) + '</small></span></button>';
+        }).join('') + '</div>';
+      };
+      el.innerHTML = '<div class="mq-track">' + set(false) + set(true) + '</div>';
+    }
+    var picks = T.food.filter(function (f) { return f.day; });
+    row($('#marquee-a'), picks.filter(function (f) { return f.city === 'taipei'; }));
+    row($('#marquee-b'), picks.filter(function (f) { return f.city === 'tainan'; }));
+    $$('.mq-card').forEach(function (b) {
+      b.addEventListener('click', function () {
+        filt.foodCity = 'all'; filt.foodCat = 'all';
+        chips($('#food-city'), CITIES, 'foodCity', renderFood);
+        chips($('#food-cat'), FOOD_CATS, 'foodCat', renderFood);
+        renderFood();
+        var card = $('#card-food-' + b.dataset.food);
+        if (!card) return;
+        scrollToEl(card, 'center');
+        card.classList.remove('is-flash'); void card.offsetWidth; card.classList.add('is-flash');
       });
     });
   }
@@ -268,7 +412,10 @@
     });
     var el = $('#food-list');
     el.innerHTML = list.length ? list.map(function (f) {
-      return cardHtml(Object.assign({ catLabel: catLabel[f.cat] }, f), 'food', '吃过了', '吃过');
+      var x = {};
+      for (var k in f) x[k] = f[k];
+      x.catLabel = catLabel[f.cat];
+      return cardHtml(x, 'food', '吃过了', '吃过');
     }).join('') : '<p class="empty">这个组合下没有推荐，换个筛选看看。</p>';
     var done = T.food.filter(function (f) { return isDone('food:' + f.id); }).length;
     $('#food-progress').textContent = '已经吃过 ' + done + ' / ' + T.food.length;
@@ -284,7 +431,7 @@
     wireCards(el, renderSpots);
   }
 
-  // ---------- go (flights, hotels, transport, info) ----------
+  // ---------- go ----------
   function renderGo() {
     var g = T.go;
     var flights = g.flights.map(function (f) {
@@ -292,7 +439,7 @@
         '<div><p class="ticket-label">' + esc(f.label) + '</p><p class="ticket-code">' + esc(f.code) + '</p></div>' +
         '<span class="pill">' + esc(f.date) + '</span>' +
         '<p class="ticket-route">' + esc(f.route) + '</p>' +
-        (f.note ? '<p class="card-note" style="grid-column:1/-1">' + f.note + '</p>' : '') +
+        (f.note ? '<p class="card-note">' + f.note + '</p>' : '') +
       '</div>';
     }).join('');
     var hotels = g.hotels.map(function (h, i) {
@@ -340,14 +487,12 @@
     var groups = T.packing.map(function (g, gi) {
       return '<div class="check-group"><h4>' + esc(g.group) + '</h4>' +
         g.items.map(function (it, ii) {
-          var k = 'pack:' + gi + ':' + ii;
-          var id = 'pk-' + gi + '-' + ii;
+          var k = 'pack:' + gi + ':' + ii, id = 'pk-' + gi + '-' + ii;
           return '<label class="check-row" for="' + id + '"><input type="checkbox" id="' + id + '" data-k="' + k + '"' + (isDone(k) ? ' checked' : '') + '>' +
             '<span>' + esc(it.t) + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</span></label>';
         }).join('') +
       '</div>';
     }).join('');
-
     var phrases = T.phrases.map(function (p, i) {
       return '<div class="phrase"><span class="phrase-zh">' + esc(p.zh) + '</span>' +
         '<span class="phrase-note">' + esc(p.note) + '</span>' +
@@ -370,8 +515,7 @@
     $$('input[data-k]', $('#pack-content')).forEach(function (c) {
       c.addEventListener('change', function () { setDone(c.dataset.k, c.checked); count(); });
     });
-    var reset = $('#pack-reset');
-    var armed = false, timer = null;
+    var reset = $('#pack-reset'), armed = false, timer = null;
     reset.addEventListener('click', function () {
       if (!armed) {
         armed = true;
@@ -385,14 +529,9 @@
       save();
       renderPack();
     });
-    $('#offal-card').addEventListener('click', function (e) {
-      openSheet(T.offal.kicker, T.offal.title, T.offal.body, e.currentTarget);
-    });
+    $('#offal-card').addEventListener('click', function (e) { openSheet(T.offal.kicker, T.offal.title, T.offal.body, e.currentTarget); });
     $$('[data-phrase]', $('#pack-content')).forEach(function (b) {
-      b.addEventListener('click', function () {
-        var p = T.phrases[+b.dataset.phrase];
-        openSheet(p.note, p.zh, '', b);
-      });
+      b.addEventListener('click', function () { var p = T.phrases[+b.dataset.phrase]; openSheet(p.note, p.zh, '', b); });
     });
     count();
   }
@@ -408,33 +547,27 @@
     $('#sheet').hidden = false;
     $('#sheet-close').focus();
   }
-  function closeSheet() {
-    $('#sheet').hidden = true;
-    if (lastFocus) lastFocus.focus();
-  }
+  function closeSheet() { $('#sheet').hidden = true; if (lastFocus) lastFocus.focus(); }
   $('#sheet-close').addEventListener('click', closeSheet);
   $('#sheet').addEventListener('click', function (e) { if (e.target.id === 'sheet') closeSheet(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
   // ---------- boot ----------
   renderStatus();
-  renderPicker();
+  renderDaybar();
   chips($('#food-city'), CITIES, 'foodCity', renderFood);
   chips($('#food-cat'), FOOD_CATS, 'foodCat', renderFood);
   chips($('#spot-city'), CITIES, 'spotCity', renderSpots);
+  renderMarquee();
   renderFood();
   renderSpots();
   renderGo();
   renderPack();
 
-  var startDay = T.days[0].id;
-  T.days.forEach(function (d) { if (d.date === TODAY) startDay = d.id; });
-  if (startDay === T.days[0].id && store.day && dayDiff(TODAY, FIRST) > 0) {
-    T.days.forEach(function (d) { if (d.id === store.day) startDay = d.id; });
-  }
-  selectDay(startDay, false);
+  var start = 'all';
+  T.days.forEach(function (d) { if (d.date === TODAY) start = d.id; });
+  if (start === 'all' && store.day && (store.day === 'all' || dayById(store.day))) start = store.day;
+  selectDay(start, false);
   showTab((location.hash || '').replace('#', '') || 'plan', false);
-  window.addEventListener('hashchange', function () {
-    showTab((location.hash || '').replace('#', '') || 'plan', false);
-  });
+  window.addEventListener('hashchange', function () { showTab((location.hash || '').replace('#', '') || 'plan', false); });
 })();

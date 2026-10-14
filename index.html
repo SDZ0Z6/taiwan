@@ -4,26 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>两个人的台湾冬天</title>
+<meta name="description" content="2026 年 12 月台北、台南七晚八天的生日之旅：手绘路线地图、每日行程、美食清单。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Serif+TC:wght@700;900&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+TC:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,500;0,600;1,500&family=Manrope:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+TC:wght@400;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="hero wrap">
-  <p class="eyebrow">2026.12.19 — 12.26 · 7 晚 8 天</p>
-  <h1>两个人的<br>台湾冬天</h1>
-  <p class="lede">台北三晚，台南三晚，再回台北一晚。两个生日，一个平安夜，不赶路，慢慢吃。</p>
-  <p class="status" id="status">距离出发还有 — 天</p>
-
-  <ol class="route" aria-label="路线">
-    <li><span class="route-city">吉隆坡</span><span class="route-note">12/19 出发</span></li>
-    <li class="is-taipei"><span class="route-city">台北</span><span class="route-note">3 晚 · 西门</span></li>
-    <li class="is-tainan"><span class="route-city">台南</span><span class="route-note">3 晚 · 古城</span></li>
-    <li class="is-taipei"><span class="route-city">台北</span><span class="route-note">1 晚 · 天母</span></li>
-    <li><span class="route-city">吉隆坡</span><span class="route-note">12/26 回家</span></li>
-  </ol>
+<header class="hero">
+  <div class="hero-doodles" id="hero-doodles" aria-hidden="true"></div>
+  <div class="topbar">
+    <span class="brand">TAIWAN · 冬</span>
+    <span class="top-pill">12.19 – 12.26</span>
+  </div>
+  <div class="hero-inner">
+    <h1>两个人的<br>台湾冬天</h1>
+    <p class="lede">台北三晚，台南三晚，再回台北一晚。两个生日，一个平安夜，慢慢走，好好吃。</p>
+    <a class="cta" href="#route" id="cta">看我们的路线 <span aria-hidden="true">→</span></a>
+    <p class="cta-note" id="status">还有 — 天出发</p>
+  </div>
 </header>
 
 <nav class="tabs" aria-label="页面">
@@ -36,52 +36,77 @@
   </div>
 </nav>
 
-<main class="wrap">
+<main>
   <section class="panel" id="plan" aria-labelledby="tab-plan">
-    <div class="days" id="day-picker" role="tablist" aria-label="选择日期"></div>
-    <article class="day" id="day-view" aria-live="polite"></article>
+    <div class="wrap wide">
+      <div class="section-head" id="route">
+        <h2>八天的路线</h2>
+        <p>点一天，地图会飞过去，把那天的路线一段一段画出来。地图上的数字和下面的行程卡是对应的。</p>
+      </div>
+      <div class="daybar" id="daybar" role="tablist" aria-label="选择日期"></div>
+      <div class="plan-grid">
+        <div class="map-col"><div class="map" id="map"></div></div>
+        <div class="day-col" id="day-view" aria-live="polite"></div>
+      </div>
+    </div>
   </section>
 
   <section class="panel" id="food" aria-labelledby="tab-food" hidden>
-    <div class="panel-head">
-      <h2>美食清单</h2>
-      <p class="panel-sub">吃过就盖个章。所有推荐都避开了内脏，点单时注意标了「提醒」的项目。</p>
-      <p class="progress" id="food-progress"></p>
+    <div class="wrap">
+      <div class="section-head">
+        <h2>想吃的，都在这里</h2>
+        <p>吃过就盖个章。所有推荐都避开了内脏，点单时注意标了「提醒」的项目。</p>
+        <p class="progress" id="food-progress"></p>
+      </div>
     </div>
-    <div class="filters" id="food-city" role="group" aria-label="城市"></div>
-    <div class="filters" id="food-cat" role="group" aria-label="类别"></div>
-    <div class="cards" id="food-list"></div>
+    <div class="mq-band" aria-label="精选美食">
+      <div class="marquee" id="marquee-a"></div>
+      <div class="marquee is-rev" id="marquee-b"></div>
+    </div>
+    <div class="wrap stack">
+      <div class="filters" id="food-city" role="group" aria-label="城市"></div>
+      <div class="filters" id="food-cat" role="group" aria-label="类别"></div>
+      <div class="cards" id="food-list"></div>
+    </div>
   </section>
 
   <section class="panel" id="spots" aria-labelledby="tab-spots" hidden>
-    <div class="panel-head">
-      <h2>景点清单</h2>
-      <p class="panel-sub">去过就盖章，回国后就是一张属于你们的打卡地图。</p>
-      <p class="progress" id="spot-progress"></p>
+    <div class="wrap stack">
+      <div class="section-head">
+        <h2>想去的地方</h2>
+        <p>去过就盖章，回家后就是一张属于你们的打卡地图。</p>
+        <p class="progress" id="spot-progress"></p>
+      </div>
+      <div class="filters" id="spot-city" role="group" aria-label="城市"></div>
+      <div class="cards" id="spot-list"></div>
     </div>
-    <div class="filters" id="spot-city" role="group" aria-label="城市"></div>
-    <div class="cards" id="spot-list"></div>
   </section>
 
   <section class="panel" id="go" aria-labelledby="tab-go" hidden>
-    <div class="panel-head">
-      <h2>出行锦囊</h2>
-      <p class="panel-sub">航班、酒店、交通和在台湾生活的小常识。酒店地址可以直接点开给司机看。</p>
+    <div class="wrap stack">
+      <div class="section-head">
+        <h2>出行锦囊</h2>
+        <p>航班、酒店、交通和在台湾生活的小常识。酒店地址可以直接放大给司机看。</p>
+      </div>
+      <div id="go-content"></div>
     </div>
-    <div id="go-content"></div>
   </section>
 
   <section class="panel" id="pack" aria-labelledby="tab-pack" hidden>
-    <div class="panel-head">
-      <h2>行李与常用语</h2>
-      <p class="panel-sub">出发前一晚对着勾一遍。勾选只存在这台设备上。</p>
-      <p class="progress" id="pack-progress"></p>
+    <div class="wrap stack">
+      <div class="section-head">
+        <h2>行李与常用语</h2>
+        <p>出发前一晚对着勾一遍。勾选只存在这台手机上。</p>
+        <p class="progress" id="pack-progress"></p>
+      </div>
+      <div id="pack-content"></div>
     </div>
-    <div id="pack-content"></div>
   </section>
 </main>
 
-<footer class="foot wrap">
+<footer class="foot">
+  <div id="foot-doodle" aria-hidden="true"></div>
+  <p>两个人的台湾冬天 · 2026</p>
   <p>营业时间与价格为 2026 年 10 月整理的资料，店家可能临时公休，出门前用 Google Maps 再看一眼。</p>
 </footer>
 
@@ -94,7 +119,11 @@
   </div>
 </div>
 
+<script src="icons.js"></script>
+<script src="geo.js"></script>
 <script src="data.js"></script>
+<script src="places.js"></script>
+<script src="map.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
